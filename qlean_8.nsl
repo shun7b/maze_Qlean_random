@@ -1,0 +1,1338 @@
+/*#include "./toplevel.nsl"*/
+/*#include "./lean86.nsl*/
+/*#include "./lean84.nsl"*/
+#define N 10
+#define M 8
+#define SHIFT_MAX (5'd28)
+#define LG_NRML (lg_exp0 == 1'b0 && lg_expf == 1'b0)
+#define SM_NRML (sm_exp0 == 1'b0 && sm_expf == 1'b0)
+#define LG_ZERO (lg_exp0 == 1'b1)
+#define SM_ZERO (sm_expf == 1'b1)
+#define LG_INFT (lg_expf == 1'b1 && lg_mts0 == 1'b1)
+#define SM_INFT (sm_expf == 1'b1 && sm_mts0 == 1'b1)
+#define LG_NAN  (lg_expf == 1'b1 && lg_mts0 == 1'b0)
+#define SM_NAN  (sm_expf == 1'b1 && sm_mts0 == 1'b0)
+#define ADD_CODE(op_main == 1'b0)
+#define SUB_CODE(op_main == 1'b1)
+#define EQL_CODE(btw_eql == 1'b1)
+#define NEQL_CODE(btw_eql== 1'b0)
+#define ZERO_NUM {8'h0,23'h0}
+#define INFT_NUM {8'hff,23'h000000}
+#define NAN_NUM  {8'h7f,23'h000000}
+#define PLUS_NUM (1'b0)
+#define MNUS_NUM (1'b1)
+struct Ieee754Sp{
+    Sign;
+    Mantissa[23];
+    Exponent[8];
+};
+declare pri_enc28{
+    input bit_in[28];
+    output info_msb[5];
+    output end_call;
+    func_in encode(bit_in);
+}
+declare divu_%N%_%M% {
+input A[N],B[M];
+output Q[N],R;
+func_in divu_do(A,B);
+
+func_out divu_error;
+}
+declare pri_enc7{
+    input bit_in[7]; 
+    output info_msb[3];
+    output end_call;
+    func_in encode(bit_in);
+}
+declare fl_addsub{
+    input fl_a_in[32];
+    input fl_b_in[32];
+    output fl_f[32];
+    output end_call;
+    func_in exec(fl_a_in,fl_b_in);
+}
+
+declare qlean{
+    input inq[32],rand_num[12],mapq[32],pos_sum[24];
+    output inposs[12],outq[32],inpos[12],posq[12],pos_result[12],rootpos[24],now_pos[12];
+    func_in start();
+    func_out qmapmrd(inpos):inq;
+    func_out rootmrd(pos_result):pos_sum;
+    func_out mapmrd(posq):mapq;
+    func_out qmapmwt(outq,inposs);
+    func_out rootmwt(rootpos,now_pos);
+    func_out randomsmrd():rand_num;
+}
+module fl_addsub{
+    func_self cmpr_input();
+    func_self def_oprnd();
+    func_self def_sign();
+    func_self find_irr();
+    func_self rdy_sm();
+    func_self rdy_lg();
+    func_self culc();
+    func_self reglatn();
+    func_self rounding();
+    func_self adjst_exp();
+    func_self deal_irr();
+    func_self out_fl();
+    pri_enc28 ENC28;
+    wire exp_diff[8];
+    wire sm_mtss;
+    wire sftr_exp[5];
+    wire sftl_exp[5];
+    wire shift_exp[8];
+    wire rd_bit;
+    wire mts_al1;
+    wire exp_plus;
+    reg fl_a[32];
+    reg fl_b[32];
+    reg sub_sign=1'b0;
+    reg fl_lg[32]=32'h0;
+    reg fl_sm[32]=32'h0;
+    reg b_gt_a=1'b0;
+    reg op_main=1'b0;
+    reg lg_exp0=1'b0;
+    reg sm_exp0 =1'b0;
+    reg sm_expf=1'b0;
+    reg lg_expf=1'b0;
+    reg lg_mts0=1'b0;
+    reg sm_mts0=1'b0;
+    reg btw_eql=1'b0;
+    reg cast_mts[50]=50'h0;
+    reg sm_mts[28]=28'h0;
+    reg sm_2mts[28]=28'h0;
+    reg lg_mts[28]=28'h0;
+    reg sub_mts[28]=28'h0;
+    reg lg_exp[8]=8'h0;
+    reg sft_mts[28]=28'h0;
+    reg rgl_exp[10]=10'h0;
+    reg rd_mts[24]=24'h0;
+    reg rd_exp[10]=10'h0;
+    reg ex_mts[23]=23'h0;
+    reg ex_exp[8]=10'h0;
+    reg fl_ex[31]=31'h0;
+    reg sub_rslt[32]=32'h0;
+    reg ir_sign=1'h0;
+    reg ir_mts[23]=23'h0;
+    reg ir_exp[8]=8'h0;
+    reg fl_sign=1'h0;
+    reg fl_mts[23]=23'h0;
+    reg fl_exp[8]=8'h0;
+    reg fl_out[32]=32'h0;
+    reg stop_flag=1'b0;
+    reg end_flag=1'b0;
+    reg end_call_reg =1'b0;
+    {
+        fl_f=fl_out;
+        end_call=end_call_reg;
+        
+    }
+    func exec seq{
+        label_name label1,label2,label3,label4,label5,label6,label7,label8,label9,label10,label11,label12;
+        label_name func_label1;
+        {
+            fl_a:=fl_a_in;
+            fl_b:=fl_b_in;
+            end_call_reg:=1'b0;
+    //        _display("call");
+        }
+        cmpr_input();
+        label1:
+        if(stop_flag==1'b1){
+            goto label1;
+        }
+        def_oprnd();
+        label2:
+        if(stop_flag==1'b1){
+            goto label2;
+        }
+        def_sign();
+        label3:
+        if(stop_flag==1'b1){
+            goto label3;
+        }
+        find_irr();
+        label4:
+        if(stop_flag==1'b1){
+            goto label4;
+        }
+        rdy_sm();
+        label5:
+        if(stop_flag==1'b1){
+            goto label5;
+        }
+        rdy_lg();
+//        _display("check");
+        label6:
+        if(stop_flag==1'b1){
+            goto label6;
+        }
+        culc();
+        label7:
+        if(stop_flag==1'b1){
+            goto label7;
+        }
+        reglatn();
+        label8:
+        if(stop_flag==1'b1){
+            goto label8;
+        }
+        rounding();
+        label9:
+        if(stop_flag==1'b1){
+            goto label9;
+        }
+        adjst_exp();
+        label10:
+        if(stop_flag==1'b1){
+            goto label10;
+        }
+        deal_irr();
+        label11:
+        if(stop_flag==1'b1){
+            goto label11;
+        }
+        out_fl();
+        label12:
+        if(stop_flag==1'b1){
+            goto label12;
+        }
+        end_call_reg:=1'b1;
+    }
+    func cmpr_input seq{
+        stop_flag:=1'b1;
+        b_gt_a:=(fl_a[30:0]<fl_b[30:0]);
+        if(b_gt_a==1'b1){
+            fl_lg:=fl_b;
+            fl_sm:=fl_a;
+        }else{
+            fl_lg:=fl_a;
+            fl_sm:=fl_b;
+        }
+      //  _display("cmpr_input");
+        stop_flag:=1'b0;
+    }
+    func def_oprnd seq{
+        stop_flag:=1'b1;
+        op_main:=(fl_lg[31]^fl_sm[31]);
+    //   _display("def_oprand");
+        stop_flag:=1'b0;
+    }
+    func def_sign seq{
+        stop_flag:=1'b1;
+        sub_sign:=fl_lg[31];
+        
+     //   _display("def_sign");
+
+        stop_flag:=1'b0;
+    }
+    func find_irr seq{
+        stop_flag:=1'b1;
+        lg_exp0:=(~|fl_lg[30:23]);
+        lg_expf:=(&fl_lg[30:23]);
+        lg_mts0:=(~|fl_lg[22:0]);
+        sm_exp0:=(~|fl_sm[30:23]);
+        sm_expf:=(&fl_sm[30:23]);
+        sm_mts0:=(~|fl_sm[22:0]);
+        btw_eql:=(fl_lg[30:0]==fl_sm[30:0]);
+     //  _display("find_irr stop");
+        stop_flag:=1'b0;
+    }
+    func rdy_sm seq{
+        stop_flag:=1'b1;
+        {
+            exp_diff=fl_lg[30:23]-fl_sm[30:23];
+            if(exp_diff>=8'd26){
+                cast_mts:={26'h0000000,~sm_exp0,fl_sm[22:0]};
+            }else{
+                cast_mts:=({~sm_exp0,fl_sm[22:0],26'h0000000} >> exp_diff);
+            }   
+        }
+        {
+            sm_mtss= |cast_mts[23:0];
+            sm_mts:={1'b0,cast_mts[49:24],sm_mtss};
+        }
+        if(op_main==1'b1){
+            sm_2mts:=(~sm_mts+28'b1);
+        }else{
+            sm_2mts:=sm_mts;
+        }
+      // _display("rdy_sm");
+        stop_flag:=1'b0;
+    }
+    func rdy_lg seq{
+        stop_flag:=1'b1;
+      //  _display("rdy_lg0");
+        lg_mts:={1'b0,~lg_exp0,fl_lg[22:0],3'b000};
+//         _display("rdy_lg1");
+        lg_exp:=fl_lg[30:23];
+//         _display("rdy_lg2");
+        stop_flag:=1'b0;
+    }
+    func culc seq{
+        stop_flag:=1'b1;
+        sub_mts:=lg_mts+sm_2mts;
+//        _display("culc");
+        stop_flag:=1'b0;
+    }
+    func reglatn seq{
+        stop_flag:=1'b1;
+        ENC28.encode(sub_mts);
+        func_label1:
+        end_flag:=ENC28.end_call;
+        if(end_flag==1'b0){
+            goto func_label1;
+        }
+        {
+            sftr_exp=ENC28.info_msb;
+            sftl_exp=SHIFT_MAX-sftr_exp;
+            sft_mts:=(sub_mts << sftl_exp);
+            shift_exp={3'h0,sftl_exp};
+            rgl_exp:=(10'(lg_exp)-10'(shift_exp)+10'b1);
+        }
+    //    _display("reglatn");
+        stop_flag:=1'b0;
+    }
+    func rounding seq{
+        stop_flag:=1'b1;
+        {
+            rd_bit=sft_mts[3]&(sft_mts[4]|sft_mts[2]|sft_mts[1]|sft_mts[0]);
+            mts_al1=&sft_mts[27:4];
+            exp_plus=(rd_bit&mts_al1);
+            rd_mts:=sft_mts[27:4]+{23'h0,rd_bit};
+            rd_exp:=rgl_exp+{9'h0,exp_plus};
+
+        }
+    //    _display("rounding");
+        stop_flag:=1'b0;
+    }
+    func adjst_exp seq{
+        
+        stop_flag:=1'b1;
+        if(rd_exp[9]==1'b1){
+            ex_mts:=23'h0;
+            ex_exp:=8'h0;
+        }else{
+            if(rd_exp[8]==1'b1){
+                ex_mts:=23'h0;
+                ex_exp:=8'hff;
+            }else{
+                ex_mts:=rd_mts[22:0];
+                ex_exp:=rd_exp[7:0];
+            }
+        }
+        fl_ex:={ex_exp,ex_mts};
+    //    _display("adjst_exp");
+        stop_flag:=1'b0;
+    }
+    func deal_irr seq{
+        
+        stop_flag:=1'b1;
+        alt{
+            LG_ZERO&&SM_ZERO&&ADD_CODE:{
+                sub_rslt:={MNUS_NUM,ZERO_NUM};
+            }
+            LG_ZERO&&SM_ZERO&&SUB_CODE:{
+                sub_rslt:={PLUS_NUM,ZERO_NUM};
+            }
+            LG_ZERO&&SM_INFT:{
+                sub_rslt:={MNUS_NUM,INFT_NUM};
+            }
+        //   LG_ZERO&&SM_NAN:{
+         //       sub_rslt:={MNUS_NUM,NAN_NUM};
+         //  }
+            LG_ZERO&&SM_NRML:{
+                sub_rslt:={MNUS_NUM,fl_sm[30:0]};
+            }
+            LG_INFT&&SM_ZERO:{
+                sub_rslt:={MNUS_NUM,INFT_NUM};
+            }
+            LG_INFT&&SM_INFT&&ADD_CODE:{
+                sub_rslt:={MNUS_NUM,INFT_NUM};
+            }
+        //   LG_INFT&&SM_INFT&&SUB_CODE:{
+         //      sub_rslt:={MNUS_NUM,NAN_NUM};
+         //  }
+         //   LG_INFT&&SM_NAN:{
+          //      sub_rslt:={MNUS_NUM,NAN_NUM};
+          //  }
+            LG_INFT&&SM_NRML:{
+                sub_rslt:={MNUS_NUM,INFT_NUM};
+            }
+          //  LG_NAN:{
+          //     sub_rslt:={MNUS_NUM,NAN_NUM};
+          // }
+            LG_NRML&&SM_ZERO:{
+                sub_rslt:={MNUS_NUM,fl_lg[30:0]};
+            }
+            LG_NRML&&SM_INFT:{
+                sub_rslt:={MNUS_NUM,INFT_NUM};
+            }
+        //    LG_NRML&&SM_NAN:{
+         //       sub_rslt:={MNUS_NUM,NAN_NUM};
+          //  }
+            LG_NRML&&SM_NRML&&ADD_CODE:{
+                sub_rslt:={MNUS_NUM,fl_ex};
+            }
+            LG_NRML&&SM_NRML&&SUB_CODE&&NEQL_CODE:{
+                sub_rslt:={MNUS_NUM,fl_ex};
+            }
+            LG_NRML&&SM_NRML&&SUB_CODE&&EQL_CODE:{
+                sub_rslt:={PLUS_NUM,ZERO_NUM};
+            }
+        //    else:{
+         //       sub_rslt:={MNUS_NUM,NAN_NUM};
+         //   }
+        }
+        ir_sign:=sub_rslt[31];
+        ir_exp:=sub_rslt[30:23];
+        ir_mts:=sub_rslt[22:0];
+    //    _display("deal_irr");
+        stop_flag:=1'b0;
+    }
+    func out_fl seq{
+        
+        stop_flag:=1'b1;
+        fl_exp:=ir_exp;
+        fl_sign:=(ir_sign&sub_sign);
+        fl_mts:=ir_mts;
+        fl_out:={fl_sign,fl_exp,fl_mts};
+     //   _display("out_fl");
+        stop_flag:=1'b0;
+    }
+}
+module pri_enc28{
+    pri_enc7 ENC7;
+    reg code3[5];
+    reg code2[5];
+    reg code1[5];
+    reg code0[5];
+    reg bit[28];
+    reg end_call_reg=1'b0;
+    reg code[5]=5'h0;
+    reg end_flag=1'b0;
+    {
+        info_msb=code;
+        end_call=end_call_reg;
+    }
+    func encode seq{
+        label_name func_label1,func_label2,func_label3,func_label4;
+        {
+            bit:=bit_in;
+            end_call_reg:=1'b0;
+        }
+        ENC7.encode(bit[27:21]);
+        func_label1:
+        end_flag:=ENC7.end_call;
+      //    _display("pri_enc28l1");
+        if(end_flag==1'b0){
+            goto func_label1;
+        }
+        code3:={2'b00,ENC7.info_msb};
+        //  _display("pri_enc28l2");
+        ENC7.encode(bit[20:14]);
+        func_label2:
+        end_flag:=ENC7.end_call;
+      //    _display("pri_enc28l3");
+        if(end_flag==1'b0){
+            goto func_label2;
+        }
+        code2:={2'b00,ENC7.info_msb};
+        ENC7.encode(bit[13:7]);
+        func_label3:
+        end_flag:=ENC7.end_call;  
+    //    _display("pri_enc28l3");
+        if(end_flag==1'b0){
+            goto func_label3;
+        }
+        code1:={2'b00,ENC7.info_msb};
+        ENC7.encode(bit[6:0]);
+        func_label4:
+        end_flag:=ENC7.end_call;
+    // _display("pri_enc28l4");
+        if(end_flag==1'b0){
+            goto func_label4;
+        }
+        code0:={2'b00,ENC7.info_msb};
+        alt{
+            (|code3==1'b1):{
+                code:=code3+5'd21;
+           }
+            (|code2==1'b1):{
+                code:=code2+5'd14;
+            }
+            (|code1==1'b1):{
+                code:=code2+5'd07;
+            }
+            (|code0==1'b1):{
+              code:=code0;
+            }
+            else:{
+                code:=5'd00;
+            }
+        }
+    //    _display("pri_enc28");
+        end_call_reg:=1'b1;
+    }
+}
+module pri_enc7{
+    wire code2;
+    wire code1;
+    wire code0;
+    reg bit[7];
+    reg end_call_reg=1'b0;
+    reg code[3]=3'h0;
+    {
+        info_msb=code;
+        end_call=end_call_reg;
+    }
+    func encode seq{
+    {
+        bit:=bit_in;
+        end_call_reg:=1'b0;
+    }
+    {
+        code2=(bit[6]|bit[5]|bit[4]|bit[3]);
+        code1=(bit[6]|bit[5]|((~bit[4])&(~bit[3])&(bit[2]|bit[1])));
+        code0=(bit[6]|((~bit[5])&(bit[4]|((~bit[3])&(bit[2]|((~bit[1])&bit[0]))))));
+        code:={code2,code1,code0};
+    }
+   // _display("pri_enc7");
+    end_call_reg:=1'b1;
+    }
+}
+
+module qlean{
+    reg gopos[12]=0x000,reset[12]=0x000,epsilon[7]=7'b0,gogoal[12]=0x000;
+
+    reg q_fin_flag=1'b0,initflag=1'b0;
+    label_name initlabel1,initlabel2;
+    func_self initq();
+
+    reg cheack_flag=1'b0;
+    label_name top0,top1,top2,top3,top4,top5,top6,top7,top8,top9,top10,
+        top11,top12,top13,top14,top15,top16,top17,top18,top19,top20,
+        top21,top22,top23,top24,top25;
+    func_self top();
+
+    reg dogoal_flag=1'b0; 
+    label_name cheack_do_flag;
+    func_self dogoal();
+
+    func_self dogoal_1();
+
+    func_self dogoal_1_0();
+
+    reg qgo_0[32]=0x00000000,qgo_1[32]=0x00000000,qgo_2[32]=0x00000000,qgo_3[32]=0x00000000,
+        pos0[12]=0x000,pos1[12]=0x000,pos2[12]=0x000,pos3[12]=0x000,addq[32]=0x00000000;
+    func_self go();
+
+    reg alua[32]=0x00000000,alub[32]=0x00000000,alueresult[32]=0x00000000;
+
+    func_self bestsaech();
+
+    reg maxq[32]=0x00000000;
+    func_self bestsaech_under();
+
+    func_self bestsaech_under2();
+
+    reg decodeqmaxq_newbest[32]=0x00000000;
+    func_self bestsaech_under3();
+
+    reg chenge[12]=12'b0;
+    func_self act_check();
+
+    reg checkpos[12]=0x000;
+    func_self setting();
+
+    reg best[32]=0x00000000;
+    func_self decodeexe();
+
+    reg resultmulfay[32]=0x00000000;
+    func_self decodeexe_1_1();
+
+    func_self decodeIeee_set();
+
+    func_self decodeIeeeadd();
+
+    func_self decodeIeeeq();
+
+    reg alureturn_[8]=0x00,setadd_flag=1'b0;
+    label_name setadd_label;
+    func_self aluexe();
+
+    func_self big();
+
+    reg jage[48]=48'b0,ch_fl2=1'b0;
+    label_name load1,load2;
+    func_self load();
+
+    reg alueresulttop=1'b0,alu_resultexp[8]=0x00;
+    wire aluwirea[32],aluwireb[32];
+    func_self fl_mulload(aluwirea,aluwireb);
+
+    func_self fl_mulload2();
+
+    label_name mulload1_f;
+    func_self mulload1();
+
+    func_self mul1_0();
+
+    label_name mulload2_f;
+    func_self mulload2();
+
+    func_self mul2_0();
+
+    reg alua_[32]=0x00000000,alub_[32]=0x00000000,setadd_addsub_flag=1'b0 ;
+    label_name setadd_addsub;
+    func_self setadd();
+
+    fl_addsub add;
+    func_self setadd_add();
+
+    reg outpos[12]=12'b0;
+    func_self qwrite();
+
+    func_self qreturn();
+
+    reg div_ans[N]=N'b0,div_ina[N]=N'b0,div_inb[M]=M'b0,outerror_jage[N]=N'b0,outerror_jage_1[N]=N'b0;
+    func_self outerror();
+
+    reg  a[N], b[M],divwait_flag=1'b0;
+    func_self div();
+
+    divu_%N%_%M%  divid;
+
+    reg data[24]=0x000000;
+    func_self chenge_func();
+
+    reg rootmap[12]=0x000,printpos[24]=0x000000,printrootout[12]=12'b0,printroot_waitloop_flag=1'b0;
+    func_self printroot();
+
+
+
+    func_self printroot_loop();
+
+    reg wait_dis_flag=1'b0;
+    func_self printroot_loop_under();
+
+    func start seq{
+        gopos:=21;
+        gogoal:=0;
+        reset:=0;
+        epsilon:=5;
+            initq();
+    }
+    func initq seq{
+        q_fin_flag:=1'b1;
+        initlabel1:
+        top();
+        initlabel2:
+        if(initflag==1'b1){
+            goto initlabel2;
+        }
+        if(q_fin_flag==1'b1){
+            goto initlabel1;
+        }
+        printroot();
+    }
+    func top seq{
+        initflag:=1'b1;
+        
+        dogoal();
+        top0:
+        if(cheack_flag==1'b1){
+            goto top0;
+        }
+        go();
+        top1:
+        if(cheack_flag==1'b1){
+            goto top1;
+        }
+        bestsaech();
+        top2:
+        if(cheack_flag==1'b1){
+            goto top2;
+        }
+        aluexe();
+        top3:
+        if(cheack_flag==1'b1){
+            goto top3;
+        }
+        bestsaech_under();
+        top4:
+        if(cheack_flag==1'b1){
+            goto top4;
+        }
+        aluexe();
+        top5:
+        if(cheack_flag==1'b1){
+            goto top5;
+        }
+        bestsaech_under2();
+        top6:
+        if(cheack_flag==1'b1){
+            goto top6;
+        }
+        aluexe();
+        top7:
+        if(cheack_flag==1'b1){
+            goto top7;
+        }
+        bestsaech_under3();
+        top8:
+        if(cheack_flag==1'b1){
+            goto top8;
+        }
+        act_check();
+        top9:
+        if(cheack_flag==1'b1){
+            goto top9;
+        }
+        setting();
+        top10:
+        if(cheack_flag==1'b1){
+            goto top10;
+        }
+        decodeexe();
+        top11:
+        if(cheack_flag==1'b1){
+            goto top11;
+        }
+        aluexe();
+        top12:
+        if(cheack_flag==1'b1){
+            goto top12;
+        }
+        decodeexe_1_1();
+        top13:
+        if(cheack_flag==1'b1){
+            goto top13;
+        }
+        aluexe();
+        top14:
+        if(cheack_flag==1'b1){
+            goto top14;  
+        }
+        decodeIeee_set();
+        top15:
+        if(cheack_flag==1'b1){
+            goto top15;
+        }
+        aluexe();
+        top16:
+        if(cheack_flag==1'b1){
+            goto top16;
+        }
+        decodeIeeeadd();
+        top17:
+        if(cheack_flag==1'b1){
+            goto top17;
+        }
+        aluexe();
+        top18:
+        if(cheack_flag==1'b1){
+            goto top18;
+        }
+        decodeIeeeq();
+        top19:
+        if(cheack_flag==1'b1){
+            goto top19;
+        }
+        aluexe();
+        top20:
+        if(cheack_flag==1'b1){
+            goto top20;
+        }
+        qwrite();
+        top22:
+        if(cheack_flag==1'b1){
+            goto top22;
+        }
+        qreturn();
+        top23:
+        if(cheack_flag==1'b1){
+            goto top23;
+        }
+        outerror();
+        top24:
+        if(cheack_flag==1'b1){
+            goto top24;
+        }
+        chenge_func();
+        top25:
+        if(cheack_flag==1'b1){
+            goto top25;
+        }
+        initflag:=1'b0;
+    }
+
+    func dogoal seq{
+        cheack_flag:=1'b1;
+    //    _display("do goal");
+        if(reset==100||data>50000){
+            dogoal_1_0();
+        }
+        cheack_flag:=1'b0;
+    }
+    func dogoal_1_0 seq{
+        dogoal_1();
+        cheack_do_flag:
+        if(dogoal_flag==1'b1){
+            goto cheack_do_flag;
+        }
+    }
+    func dogoal_1 seq{
+        dogoal_flag:=1'b1;
+      //  _finish("bye complite");
+        q_fin_flag:=1'b0;
+        dogoal_flag:=1'b0;
+    }
+    func go seq{
+        cheack_flag:=1'b1;
+       _display(",%d,%d,%d,",gopos,reset,gogoal);
+        pos0:=12'(gopos<<2);
+        pos1:=12'((gopos<<2)+1);
+        pos2:=12'((gopos<<2)+2);
+        pos3:=12'((gopos<<2)+3);
+        qgo_0:=qmapmrd(pos0);
+        qgo_1:=qmapmrd(pos1);
+        qgo_2:=qmapmrd(pos2);
+        qgo_3:=qmapmrd(pos3);
+        addq:=mapmrd(gopos);
+       // _display("%d, %b,\n%d, %b,\n%d, %b,\n%d, %b,\naddq %b",pos0,qgo_0,pos1,qgo_1,pos2,qgo_2,pos3,qgo_3,addq);
+        cheack_flag:=1'b0;
+    }
+
+    func bestsaech seq{
+            cheack_flag:=1'b1;
+         //       _display("bestsaech");
+            
+            alua:=qgo_0;
+            alub:=qgo_1;
+            alureturn_:=1;
+            cheack_flag:=1'b0;
+              
+    } 
+    func bestsaech_under seq{
+        cheack_flag:=1'b1;
+    //    _display("bestsaech_under");
+        maxq:=alueresult;
+        alua:=qgo_3;
+        alub:=qgo_2;
+        alureturn_:=1;
+        cheack_flag:=1'b0;
+    }
+    func bestsaech_under2 seq{
+        cheack_flag:=1'b1;
+      //  _display("bestsaech_under2");
+        alua:=maxq;
+        alub:=alueresult;
+        alureturn_:=1;
+        cheack_flag:=1'b0;
+    }
+    func bestsaech_under3 seq{
+        cheack_flag:=1'b1;
+       // _display("bestsaech_under3");
+        decodeqmaxq_newbest:=alueresult;     
+        cheack_flag:=1'b0;
+    }
+    func act_check seq{
+        cheack_flag:=1'b1;
+      // _display("act_check");
+        epsilon++;
+        if(epsilon<=5){
+
+            if(decodeqmaxq_newbest==qgo_0){
+                chenge:=0;
+            }else if(decodeqmaxq_newbest==qgo_1){
+                chenge:=1;
+            }else if(decodeqmaxq_newbest==qgo_2){
+                chenge:=2;
+            }else if(decodeqmaxq_newbest==qgo_3){
+                chenge:=3;
+            }else{
+                chenge:=randomsmrd();
+            }
+        } else{
+            chenge:=randomsmrd();
+        }
+        if(epsilon>5){
+            epsilon:=0;
+        }     
+       cheack_flag:=1'b0;
+    }
+    func setting seq{
+        cheack_flag:=1'b1;
+      // _display("chenge %d\n",chenge);        
+        if(chenge==0){
+            checkpos:=gopos+10;
+        }
+        if(chenge==1){ 
+            checkpos:=gopos+1;
+        }
+        if(chenge==2){
+            checkpos:=gopos-10;
+        }
+        if(chenge==3){
+            checkpos:=gopos-1;
+        }
+        if(checkpos>0&&checkpos<120){
+            addq:=mapmrd(checkpos);
+        }else{
+            addq:=0xBF800000;
+        }
+        cheack_flag:=1'b0;
+    }
+    func decodeexe seq{
+        cheack_flag:=1'b1;
+    //    _display("decodeexe");
+        alua:=0x3F4ccccc;
+        //if(outerror_jage==0xBF800000){
+            alub:=best;  
+        //}
+        alureturn_:=4;
+        cheack_flag:=1'b0;
+    }
+    func decodeexe_1_1 seq{
+        cheack_flag:=1'b1;
+        resultmulfay:=alueresult;
+        alua:=0x3f666666;
+        alub:=decodeqmaxq_newbest;
+        cheack_flag:=1'b0;
+    }
+    func decodeIeee_set seq{
+        cheack_flag:=1'b1;
+    //    _display("decodeIeee_set");
+       alua:=alueresult;
+        alub:=addq;
+        alureturn_:=5;
+   
+        cheack_flag:=1'b0;
+    }
+    func decodeIeeeadd seq{
+        cheack_flag:=1'b1;
+    //    _display("decodeIeeeadd");
+        alua:=0x3E4ccccc;
+        alub:=alueresult;    
+        alureturn_:=4;
+        cheack_flag:=1'b0;
+    }
+    func decodeIeeeq seq{
+        cheack_flag:=1'b1;
+    //    _display("decodeIeeeq");
+        alua:=resultmulfay;
+        alub:=alueresult;    
+        alureturn_:=5;
+        cheack_flag:=1'b0;
+    }
+
+    func aluexe seq{
+        cheack_flag:=1'b1;
+      //  _display("aluexe");
+        alueresult:=0;
+        if(alureturn_==1){
+            big();
+        }
+        if(alureturn_==4){
+            load();
+        }
+        if(alureturn_==5){
+          setadd();
+        }
+        setadd_label:
+        if(setadd_flag==1'b1){
+            goto setadd_label;
+        }
+        cheack_flag:=1'b0;
+    }
+    func big seq{
+       /*cheack_flag:=1'b1;*/
+       setadd_flag:=1'b1;
+        if(alua==alub){
+            alueresult:=alua;
+        }else{
+            if(alua[31]){
+                    if(alub[31]){
+                        if(alua[30:0]>alub[30:0]){
+                            alueresult:=alub;
+                        }else{
+                            alueresult:=alua;
+                        }
+                        
+                    }else{
+                        alueresult:= alub;
+                    }
+            }else{
+                if(alub[31]){
+                        alueresult:= alua;
+                }else{
+                    if(alua[30:0]>alub[30:0]){
+                        alueresult:=alua;
+                    }else{
+                        alueresult:=alub;    
+                    }
+                }
+            }
+        }
+        setadd_flag:=1'b0;
+            /*   cheack_flag:=1'b0;*/
+    }
+    func load seq{
+        /*cheack_flag:=1'b1;*/
+        setadd_flag:=1'b1;
+        jage:=0;
+        fl_mulload(alua,alub);
+        load1:
+        if((~jage)&&(alua==alub)){
+            goto load1;
+        }
+        
+        fl_mulload2();
+        load2:
+        if(ch_fl2==1'b1){
+            goto load2;
+        }
+        if(alua==0||alub==0){
+            alueresult:=32'b0;
+        }
+     //  _display("alua %b\nalub %b\nload %b\n",alua,alub,alueresult);
+        setadd_flag:=1'b0;
+       /* cheack_flag:=1'b0;*/
+    }
+    func fl_mulload{
+        wire aluresultwire;
+        wire jagewire[48];
+        jagewire={1'b1,aluwirea[22:0]}*{1'b1,aluwireb[22:0]};
+        jage:=jagewire;
+        aluresultwire=aluwirea[31]^aluwireb[31];
+        alueresulttop:=aluresultwire;
+        alu_resultexp:=8'((aluwirea[30:23]-0x7f)+(aluwireb[30:23]-0x7f));
+    }
+    func fl_mulload2 seq{
+        ch_fl2:=1'b1;
+        if(jage[47]){
+            mulload1();
+        }else{
+            mulload2();         
+        }
+        ch_fl2:=1'b0;
+    }
+    func mulload1 seq{
+        mul1_0();
+        mulload1_f:
+        if((~alueresult[30:0])&&(alua==alub)){
+            goto mulload1_f;
+        }
+    }
+    func mul1_0{
+       alueresult:={alueresulttop,8'(alu_resultexp+0x80),23'(jage[46:24])};
+    }
+    func mulload2 seq{
+        mul2_0();
+        mulload2_f:
+        if((~alueresult[30:0])&&(alua==alub)){
+            goto mulload2_f;
+        }
+    }
+    func mul2_0{
+        alueresult:={alueresulttop,8'(alu_resultexp+0x7f),23'(jage[45:23])};
+    }
+
+    func  setadd seq{
+        /*cheack_flag:=1'b1;*/
+        setadd_flag:=1'b1;
+        alua_:=alua;
+        alub_:=alub;
+        setadd_add();
+        setadd_addsub:
+        if(setadd_addsub_flag==1'b1){
+            goto setadd_addsub;
+        }
+        if(alua==0&&alub==0){
+            alueresult:=0;
+        }else if(alua==0){
+            alueresult:=alub;
+        }else if(alub==0){
+            alueresult:=alua;
+        }else{
+            alueresult:=add.fl_f;
+        }
+     //   _display("alua%b,\n alub%b \naluend %b",alua,alub,alueresult);
+        setadd_flag:=1'b0;
+       /* cheack_flag:=1'b0;*/
+    }
+    func setadd_add seq{
+        setadd_addsub_flag:=1'b1;
+        add.exec(alua_,alub_);
+        while(~add.end_call){
+            ;
+        }
+        setadd_addsub_flag:=1'b0;
+    }
+    func qwrite seq{
+        cheack_flag:=1'b1;
+        decodeqmaxq_newbest:=alueresult;
+     //   _display("decodeqmaxq_newbest\n %b",decodeqmaxq_newbest);
+        
+     //   _display("%d",outpos);
+        qmapmwt(decodeqmaxq_newbest,outpos);
+        outpos:=12'((gopos<<2)+chenge);
+        cheack_flag:=1'b0; 
+    }
+    func qreturn seq {
+        cheack_flag:=1'b1;
+    //    _display("qreturn");
+        
+        best:=decodeqmaxq_newbest;
+        cheack_flag:=1'b0;
+    }
+
+    func outerror seq{
+        label_name divwait,divwait_1;
+        cheack_flag:=1'b1;
+    //    _display("outerror");
+        rootmwt(data,gopos);
+        div_ina:=N'(gopos);
+        div_inb:=M'd10;
+        div();
+        divwait:
+        if(divwait_flag==1'b1){
+            goto divwait;
+        }else{
+            outerror_jage:=div_ans;
+        }
+        div_ina:=N'(checkpos);
+        div();
+        divwait_1:
+        if(divwait_flag==1'b1){
+            goto divwait_1;
+        }else{
+            outerror_jage_1:=div_ans;
+        }
+        
+     //  _display("jage %d,%d",outerror_jage,outerror_jage_1);
+        if((gopos<10)||(gopos>109)||((chenge==1||chenge==3)&&(outerror_jage!=outerror_jage_1))){
+            checkpos:=21;
+            reset++;
+        }
+        if(gopos==98){
+            checkpos:=21;
+            gogoal++;
+            reset++;
+        }
+        cheack_flag:=1'b0;
+    }
+    func div seq {
+        
+        divwait_flag:=1'b1;
+        
+            a:=div_ina;
+            b:=div_inb;
+        
+        {
+            divid.divu_do(a,b);
+           // _display("start %d/%d",a,b);
+        }
+        
+        while(~divid.R){
+            ;
+        }
+        div_ans:=divid.Q;
+        divwait_flag:=1'b0;
+    }    
+      /* qwriteset();*/
+    func chenge_func seq{
+        cheack_flag:=1'b1;
+    //    _display("chenge_func");
+         
+        data++;
+       gopos:=checkpos;
+       
+       checkpos:=0;
+       cheack_flag:=1'b0;
+    }
+    func printroot seq{
+        label_name printroot_waitloop_1;
+        label_name printroot_waitloop;
+        printrootout:=0;
+        rootmap:=0;
+        printpos:=rootmrd(rootmap);
+        _display("%d",printpos);
+        printroot_waitloop_1:
+      //  _display("printrootout");
+        printroot_loop();
+        printroot_waitloop:
+        if(printroot_waitloop_flag==1'b1){
+             goto printroot_waitloop;
+        }
+        if(printrootout<gogoal){
+            goto printroot_waitloop_1;
+        }
+        _finish("bye complite");
+    }
+    func printroot_loop seq{
+        label_name wait_print_goal,wait_dis;
+        printroot_waitloop_flag:=1'b1;
+        wait_print_goal:
+        printroot_loop_under();
+        wait_dis:
+        if(wait_dis_flag==1'b1){
+            goto wait_dis;
+        }
+        if(printpos==98&&printrootout<gogoal){
+            goto wait_print_goal;
+            rootmap++;
+            printrootout++;
+        }
+        printroot_waitloop_flag:=1'b0;
+    }
+    func printroot_loop_under seq{
+        wait_dis_flag:=1'b1;
+        rootmap++;
+        printpos:=rootmrd(rootmap);
+         _display("%d,%d,",printpos,printrootout);
+        wait_dis_flag:=1'b0;
+    }
+}
+
+module divu_%N%_%M% {
+reg QB[M], QQ[N+M];
+reg Aa[N],Bb[M];
+reg divu_flagfin;
+reg bitcount[M];
+wire sub_i1[N+1], sub_i2[N], minus;
+func_self sub(sub_i1,sub_i2);
+{
+        R=divu_flagfin;
+        Q=QQ[N-1:0];
+
+}
+
+func sub {
+ wire sub_o[N+1];
+  sub_o = {sub_i1} - {0b0,sub_i2};
+  minus=sub_o[N];
+}
+ 
+func divu_do  {
+    
+    if(B==M'b0) divu_error();
+    else seq {
+    {
+        Aa:=A;
+        Bb:=B;
+        divu_flagfin:=1'b0;
+    }
+    
+    for( {bitcount:=0; QB:=Bb; QQ:={M'b0,Aa};} ;
+              bitcount < N ; bitcount++) {
+        if(sub(QQ[N+M-1:M-1],(N'(QB)<<(N-M))).minus) {
+         QQ := (QQ << 1) ;
+ 
+        }
+        else {
+         QQ := {(sub_o << 1)[N:N-M],(QQ[N-2:0]<<1)} | (N+M)'b1;
+        }
+         }
+         divu_flagfin:=1'b1;
+        
+    }
+    }
+}
+ 
+declare lean95 simulation{}
+module lean95{
+    
+    mem root[50000][12];
+        mem map[120][32]={
+            0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,
+            0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,
+            0xBF800000,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0xBF800000,
+            0xBF800000,0x00000000 ,0xBF800000,0xBF800000,0x00000000 ,0xBF800000,0xBF800000,0xBF800000,0x00000000 ,0xBF800000,
+            0xBF800000,0x00000000 ,0x00000000 ,0xBF800000,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0xBF800000,
+            0xBF800000,0xBF800000,0xBF800000,0xBF800000,0x00000000 ,0xBF800000,0xBF800000,0xBF800000,0x00000000 ,0xBF800000,
+            0xBF800000,0x00000000 ,0x00000000 ,0x00000000 ,0x00000000 ,0xBF800000,0x00000000 ,0xBF800000,0x00000000 ,0xBF800000,
+            0xBF800000,0x00000000 ,0xBF800000,0xBF800000,0x00000000 ,0xBF800000,0x00000000 ,0xBF800000,0x00000000 ,0xBF800000,
+            0xBF800000,0x00000000 ,0xBF800000,0xBF800000,0x00000000 ,0x00000000 ,0x00000000 ,0xBF800000,0xBF800000,0xBF800000,
+            0xBF800000,0x00000000 ,0x00000000,0x00000000,0x00000000 ,0xBF800000,0x00000000 ,0x00000000 ,0x3F800000 ,0xBF800000,
+            0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,
+            0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000,0xBF800000
+        };
+         mem qmap[480][32]={
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,
+            0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000,0x00000000
+         };
+    qlean qleanx;
+    
+    func qleanx.randomsmrd{
+        return 12'{10'b0,2'(2'(_random)+2'(_time))};
+    }
+    func qleanx.qmapmrd {
+        return qmap[qleanx.inpos];
+    }
+    func qleanx.qmapmwt{
+        qmap[qleanx.inposs]:=qleanx.outq;
+    }   
+    func qleanx.rootmrd{
+        return root[qleanx.pos_result];
+    }
+    func qleanx.rootmwt{
+        root[qleanx.rootpos]:=qleanx.now_pos;
+    }
+    func qleanx.mapmrd{
+        return map[qleanx.posq];
+    }
+    _init{
+         _display("hello");
+         qleanx.start();
+         _delay(1000000000);
+         _finish("bye");
+    }
+}
